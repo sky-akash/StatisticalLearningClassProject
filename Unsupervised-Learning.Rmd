@@ -1,0 +1,353 @@
+---
+title: "digits"
+author: "Akash Mittal"
+date: "2024-08-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Unsupervised Learning Algorithm for Devagnari Digit Classification (PCA + K-Means)
+
+##### This part of project is about implementing the unsupervised-learning algorithms for performing the clustering tasks. 
+
+```{r}
+# Loading the required Libraries
+
+library(keras)        # For working with deep learning models
+library(tensorflow)   # Backend for Keras
+library(tfdatasets)   # For handling TensorFlow datasets
+library(grid)         # For arranging grid layouts
+library(imager)       # For image processing
+library(ggplot2)      # For data visualization
+library(stats)        # For statistical functions
+library(factoextra)   # For visualizing clustering results
+library(cluster)      # For silhouette-score function
+```
+
+###### Importing the Dataset by speficying the file path.
+
+```{r}
+set.seed(28)
+# Specifying the Directory for Devnagri Digits Dataset
+dir_path <- "C:/Users/Akash Mittal/Documents/R/DL/Digits/DevanagariHandwrittenDigitDataset"
+train_dir <- paste0(dir_path,"/Train/") # Path for the training directory
+test_dir <- paste0(dir_path,"/Test/") # Path for the test directory
+
+```
+
+```{r}
+# Extracting the images into training and test dataset along with labels.
+
+train_dataset <- image_dataset_from_directory(
+  directory = train_dir,
+  labels = 'inferred',         # to automatically infer labels from directory structure
+  label_mode = 'categorical',  # specifying the categorical category for One-Hot Encoding
+  image_size = c(32, 32),      # input image size  32x32
+  batch_size = 32,             # Batch size for training
+  color_mode = 'grayscale'     # Input images are grayscale images
+)
+# Similar operation on the following test_dataset.
+test_dataset <- image_dataset_from_directory(
+  directory = test_dir,
+  labels = 'inferred',
+  label_mode = 'categorical',
+  image_size = c(32, 32),
+  batch_size = 32,
+  color_mode = 'grayscale'
+  )
+
+train_class_names = train_dataset$class_names # Printing the Training Class Names as per the folder Hierarchy
+test_class_names = test_dataset$class_names # Printing the Test Class Names as per the folder Hierarchy
+
+train_class_names
+test_class_names
+
+```
+###### Flattening the Images:
+
+```{r}
+# A function to convert the image dataset to a matrix, which is used for PCA.
+
+convert_to_matrix <- function(dataset) {
+  image_matrix <- NULL
+  labels <- NULL
+  
+  # iterator for the dataset
+  iterator <- dataset %>% as_iterator()
+  
+  repeat {
+    batch <- tryCatch({
+      iter_next(iterator)
+    }, error = function(e) {
+      NULL  # Return NULL if the iterator is exhausted
+    })
+    
+    if (is.null(batch)) {
+      break  # Exit loop if there are no more batches
+    }
+    
+    images <- as.array(batch[[1]])
+    reshaped_images <- matrix(images, nrow = dim(images)[1], ncol = 32 * 32) # Flattening the images
+    
+    if (is.null(image_matrix)) {
+      image_matrix <- reshaped_images
+    } else {
+      image_matrix <- rbind(image_matrix, reshaped_images)
+    }
+    
+    if (is.null(labels)) {
+      labels <- as.array(batch[[2]])
+    } else {
+      labels <- rbind(labels, as.array(batch[[2]]))
+    }
+  }
+  
+  return(list(images = image_matrix, labels = labels)) # returns both images and labels
+}
+
+# Converting train_dataset to matrix
+train_data <- convert_to_matrix(train_dataset)
+train_images <- train_data$images  # Image data in a matrix form
+train_labels <- train_data$labels   # One-hot encoded labels
+
+# Converting test_dataset to matrix
+test_data <- convert_to_matrix(test_dataset)
+test_images <- test_data$images  # Image data in a matrix form
+test_labels <- test_data$labels   # One-hot encoded labels
+
+
+# Checking the structure of the arrays
+str(train_images)
+str(test_images)
+```
+
+```{r}
+# Converting one-hot encoded labels to single labels (0-9)
+actual_labels <- apply(train_labels, 1, function(row) which(row == 1) - 1)  # Getting actual digit labels (0-9)
+
+# Convert the numeric vector to a factor
+actual_labels <- factor(actual_labels)
+
+# Structure and levels of the labels
+str(actual_labels)
+levels(actual_labels)  # levels 0 to 9
+```
+
+###### Normalization of the Images
+
+```{r}
+# Normalizing the pixel values to [0, 1] range
+
+train_images <- train_images / 255
+test_images <- test_images / 255
+
+```
+
+```{r}
+# Checking the dimensions of the train_image
+dim(train_images)
+```
+
+###### Removing zero columns before performing PCA
+```{r}
+# Remove zero columns
+non_zero_columns <- colSums(train_images) != 0
+train_images_non_zero <- train_images[, non_zero_columns]
+
+# Checking the dimensions after removing zero columns
+dim(train_images_non_zero)
+
+```
+
+###### Performing Principal Component Analysis 
+
+```{r}
+
+# 
+set.seed(28)
+
+# Performing PCA
+pca_result <- prcomp(train_images_non_zero, center = TRUE, scale. = TRUE)
+
+# Summary of PCA
+summary(pca_result)
+
+# Visualizing the first two principal components
+pca_data <- data.frame(pca_result$x[, 1:2], class = actual_labels)
+
+# Plotting the Principal Components
+ggplot(pca_data, aes(x = PC1, y = PC2, color = class)) +
+  geom_point() +
+  labs(title = "First two PCAs of Devnagari Handwritten Digits", x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+###### Analyzing the PCA results
+
+```{r}
+fviz_eig(pca_result)
+
+```
+```{r}
+# Calculate the proportion of variance explained by each principal component
+pca_variance <- pca_result$sdev^2  # Eigenvalues
+pca_variance_proportion <- pca_variance / sum(pca_variance)  # Proportion of variance
+
+# Display the variance explained
+str(pca_variance_proportion)
+
+```
+
+```{r}
+# Create a Scree plot
+screeplot <- data.frame(PC = 1:length(pca_variance_proportion), Variance = pca_variance_proportion)
+
+ggplot(screeplot, aes(x = PC, y = Variance)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Scree Plot", x = "Principal Component", y = "Proportion of Variance Explained") +
+  theme_minimal()
+```
+
+```{r}
+# Calculate cumulative variance
+cumulative_variance <- cumsum(pca_variance_proportion)
+
+# Create a cumulative variance plot
+cumulative_plot <- data.frame(PC = 1:length(cumulative_variance), CumulativeVariance = cumulative_variance)
+
+# Find the index where cumulative variance exceeds 0.85
+pc_index_85 <- which(cumulative_variance >= 0.85)[1]
+
+ggplot(cumulative_plot, aes(x = PC, y = CumulativeVariance)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(xintercept = pc_index_85, linetype = "dashed", color = "pink2") +  # Adding a vertical line for 85% variance
+  geom_hline(yintercept = 0.85, linetype = "dashed", color = "lightblue3") +  # Horizontal line for 85% variance
+  labs(title = "Cumulative Variance Explained by PCA", 
+       x = "Principal Component", 
+       y = "Cumulative Proportion of Variance Explained") +
+  theme_minimal() +
+  annotate("text", x = pc_index_85 - 1, y = 0.75, label = "85% Variance", color = "orange3") # Annotating the graph
+
+cat("The number of PCA components for 85% explained varaince are ", pc_index_85)
+```
+
+###### K-Means Clustering
+
+```{r}
+
+# Set seed for reproducibility
+set.seed(28)
+
+# Apply K-Means clustering to the first 62 principal components (85% Variance)
+kmeans_result <- kmeans(pca_result$x[, 1:62], centers = 10, nstart = 100, iter.max = 500)  # 10 clusters for 10 digits
+
+# Adding K-Means cluster results to the data frame
+pca_data$cluster <- factor(kmeans_result$cluster)         # adding the clusters as factors          
+
+# Defining predefined colors for clusters
+cluster_colors <- c("red3", "skyblue2", "green3", "purple3", "orange2", "grey", "pink", "yellow", "cyan2", "darkgreen")
+
+# Extracting the cluster centers for the first two principal components (PC1 and PC2)
+cluster_centers <- as.data.frame(kmeans_result$centers[, 1:2])
+colnames(cluster_centers) <- c("PC1", "PC2")
+cluster_centers$cluster <- factor(1:10)  # Adding the cluster labels to match the number of centers
+
+# Plotting K-Means clustering results with centers
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(alpha = 0.5) +                                          # Plotting the data points with transparency
+  geom_point(data = cluster_centers, aes(x = PC1, y = PC2), color = "black", shape = 1, size = 5, stroke = 2) +  # Adding cluster centers in 'tan'
+  geom_circle(data = cluster_centers, aes(x0 = PC1, y0 = PC2, r = 0.1), linetype = "dashed", color = "black") +  # Adding dashed circles around cluster centers
+  scale_color_manual(values = cluster_colors) +  # Setting predefined colors for each cluster
+  labs(title = "K-Means Clustering on PCA of Digits",                # Title of Plot
+       x = "Principal Component 1",                                  # Axis Title (X)
+       y = "Principal Component 2") +                                # Axis Title (Y)
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))                      # Center the main Title
+```
+
+
+```{r}
+# Creating a contingency table of actual labels and cluster assignments
+cluster_distribution <- table(pca_data$class, pca_data$cluster)
+
+# Converting the table to a data frame for easier visualization
+cluster_distribution_df <- as.data.frame(cluster_distribution)
+colnames(cluster_distribution_df) <- c("Digit", "Cluster", "Count")
+
+# Printing the distribution of digits in each cluster
+print(cluster_distribution_df)
+```
+
+
+```{r}
+library(ggplot2)
+
+ggplot(cluster_distribution_df, aes(x = Cluster, y = Digit, fill = Count)) +
+  geom_tile() +
+  scale_fill_gradient2(space = "Lab", guide = "colourbar",aesthetics = "fill") +
+  labs(title = "Digits Distribution in K-Means Clusters",
+       x = "Clusters 1-10",
+       y = "Digits 0-9") +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5)) # To center align the title
+```
+
+###### Analysis of Misclassifications
+
+```{r}
+
+# Create a contingency table of actual labels and cluster assignments
+cluster_distribution <- table(pca_data$class, pca_data$cluster)
+
+# Convert the table to a data frame for easier visualization
+cluster_distribution_df <- as.data.frame(cluster_distribution)
+colnames(cluster_distribution_df) <- c("Digit", "Cluster", "Count")
+
+# Calculate the percentage of each digit in each cluster
+library(dplyr)
+
+cluster_analysis <- cluster_distribution_df %>%
+  group_by(Cluster) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+# Display the cluster analysis
+# print(cluster_analysis)
+
+```
+
+```{r}
+
+# Calculate total counts per cluster
+total_counts <- cluster_analysis %>%
+  group_by(Cluster) %>%
+  summarize(Total = sum(Count))
+
+# Merging with original data to calculate percentages
+cluster_analysis <- cluster_analysis %>%
+  left_join(total_counts, by = "Cluster") %>%
+  mutate(Percentage = (Count / Total) * 100)  # Calculate percentage
+
+# Visualizing the cluster distribution with percentages
+ggplot(cluster_analysis, aes(x = Cluster, y = Digit, fill = Percentage)) +
+  geom_tile(color = "white") +  # Adding white borders between tiles
+  scale_fill_gradient2(low = "white", mid = "yellow", high = "green4", midpoint = 50, guide = "colorbar") +
+  labs(title = "Percentage of Digits in K-Means Clusters",
+       x = "Clusters (1-10)",
+       y = "Digits (0-9)",
+       fill = "Percentage") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +  # Center align the title
+  geom_text(aes(label = round(Percentage, 1)), color = "black", size = 3)  # Adding the percentage labels
+
+```
+
+###### Here, the goal was to check if digits 3 & 6, or 1 and 9 could be well distinguished by the machine learning algorithms. However, I found that the algorithm was able to clearly distinguish between these digits, but not able to distinguish between the digits 2, 3 and 5 (clusters 1 and 4) upto a large extent. Further, there is some overlap between the digits 0 and 7 as well (in cluster 10).
+
+##### End of Analysis ##### 

@@ -1,0 +1,584 @@
+---
+title: "digits"
+author: "Akash Mittal"
+date: "2024-08-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### This project is about using NeuralNetworks to identify the handwritten digits in my Native Language (Hindi (script-Devnagari)).
+
+```{r}
+# Importing necessary libraries for the project
+
+library(keras)        # For neural network building
+library(tensorflow)    # For backend support of Keras
+library(tfdatasets)    # For working with TensorFlow datasets in R
+library(grid)          # For plotting images in a grid layout
+library(imager)        # For image processing and manipulation
+library(ggplot2)       # For visualizing results
+library(reshape2)     # for melt function for converting data to long formats
+```
+
+##### Importing the Dataset by speficying the file path.
+
+```{r}
+
+# Specifying the Directory for Devnagri Digits Dataset
+
+dir_path <- "C:/Users/Akash Mittal/Documents/R/DL/Digits/DevanagariHandwrittenDigitDataset"
+train_dir <- paste0(dir_path,"/Train/") # Path for the training directory
+test_dir <- paste0(dir_path,"/Test/") # Path for the test directory
+
+```
+
+```{r}
+# Extracting the images into training and test dataset along with labels.
+
+train_dataset <- image_dataset_from_directory(
+  directory = train_dir,
+  labels = 'inferred',
+  label_mode = 'categorical',  # specifying the categorical category for One-Hot Encoding
+  image_size = c(150, 150),
+  batch_size = 32
+)
+
+test_dataset <- image_dataset_from_directory(
+  directory = test_dir,
+  labels = 'inferred',
+  label_mode = 'categorical',  # specifying the categorical category for One-Hot Encoding
+  image_size = c(150, 150),
+  batch_size = 32
+)
+
+train_class_names = train_dataset$class_names # Printing the Training Class Names as per the folder Hierarchy
+test_class_names = test_dataset$class_names # Printing the Test Class Names as per the folder Hierarchy
+
+train_class_names
+test_class_names
+
+```
+
+##### Defining a set of functions that are used later in the code.
+###### Function for Normalizing the Images
+###### Function to convert the image tensor to a raster format
+###### Function to extract unique labels from the image dataset
+
+```{r}
+# Set of Functions used later in the code
+
+# 1.
+# Creating a function for normalizing the images in dataset
+
+normalize <- function(image, label) {
+  image <- image / 255  # Normalize the image to [0, 1]
+  return(list(image, label))  # Return both image and label
+}
+
+# 2.
+# A Function to convert the image tensor to raster format for display
+
+image_to_raster <- function(image_tensor) {
+  image_tensor <- aperm(image_tensor, c(1, 2, 3))  # dimensions
+  as.raster(image_tensor)
+}
+
+# 3.
+# Function to extract unique labels from the image dataset
+extract_labels <- function(dataset) {
+  labels <- vector()  # Initializing an empty vector
+  dataset %>% 
+    as_iterator() %>%
+    iterate(function(batch) {
+      # Converting one-hot encoded labels to class indices
+      batch_labels <- apply(batch[[2]] %>% as.array(), 1, which.max) - 1
+      labels <<- c(labels, batch_labels)  # Accumulating the labels
+      NULL  # Returns NULL to avoid printing output in each iteration
+    })
+  return(unique(labels))  # Returning unique labels
+}
+
+```
+
+
+```{r}
+# Extracting a batch of images and labels for visualization
+ batch <- as_iterator(train_dataset) %>% iter_next()
+
+ images <- batch[[1]] # Batch of Images
+ labels <- batch[[2]] # Labels of the Images
+
+# print(labels) # To see if we imported the right labels.
+```
+
+
+```{r}
+
+#### The Below Code (just used for cross-checking the files )
+# str(batch)
+# labels <- batch[[2]] 
+#
+# get_file_paths <- function(directory) {
+#   list.files(directory, full.names = TRUE, recursive = TRUE)
+# }
+# 
+# digit_0_files <- get_file_paths(paste0(train_dir, "/digit_0"))
+# print(digit_0_files)
+# 
+# str(digit_0_files)
+# #######
+```
+
+
+```{r}
+# # The code in this segment is also used as a reference to cross-check the data we have processed till now. 
+# # Initialize a counter for tracking digit_0 files
+# digit_0_counter <- 1
+# 
+# # Loop through the labels and match them with actual file paths
+# for (i in 1:nrow(labels)) {  # Loop through each label in the batch
+#   if (which.max(as.array(labels[i, ])) - 1 == 0) {  # Check if label is digit_0 (class index 0)
+#     print(paste("Label for image", i, "is digit_0"))
+#     
+#     # Check if we still have digit_0 files left to match
+#     if (digit_0_counter <= length(digit_0_files)) {
+#       print(digit_0_files[digit_0_counter])
+#       digit_0_counter <- digit_0_counter + 1  # Increment the counter for digit_0 files
+#     } else {
+#       print("No more digit_0 files to match!")
+#     }
+#   }
+# }
+# ##
+```
+
+##### Plotting a set of Random Images from the trainig set and thier corresponding Labels.
+
+```{r}
+
+# Plotting a set of random images with their corresponding labels
+
+par(mfrow = c(3, 3))  # Create a 4x4 grid for plotting
+for (i in 1:9) {
+  img <- images[i, , , ]
+  img_array <- as.array(img)
+  #img_array_corrected <- imrotate(as.cimg(img_array), angle = 0)
+  #img_array <- aperm(img_array, c(2, 1, 3))
+  #plot(img_array_corrected, axes = FALSE)
+  plot(as.cimg(img_array), axes = FALSE)  # Plot the image without axes
+
+  title(paste("Label:", which.max(as.array(labels[i, ])) - 1))  # Print the label on the image
+}
+
+```
+
+##### Normalization of the Images.
+###### Here I normalize both, the training images as well as the test images datasets.
+###### I also make sure that there is no leakage of information from test data to the training process. 
+
+```{r}
+
+# Apply normalization of images to the dataset
+train_dataset <- train_dataset %>% dataset_map(normalize)
+test_dataset <- test_dataset %>% dataset_map(normalize)
+```
+
+
+##### Exploring the training dataset again for a final time. Displaying the images along with their labels, to make sure things have been going good, and the data set has been loaded correctly.
+
+```{r}
+# Having a look at the training dataset, choosing some random images and their actual labels.
+# Helps to cross check that the data has been loaded correctly.
+# Extracting a batch of images and labels
+
+### Note: This batch variable will override the previous one, which was just used to have a look at the images and set of initial loading of labels.
+batch <- train_dataset %>% dataset_take(1) %>% as_iterator() %>% iter_next()
+images <- batch[[1]]
+labels <- batch[[2]]
+
+# Convert images to raster format using the function image_to_raster (as created above)
+
+image_list <- lapply(1:dim(images)[1], function(i) {
+  image_to_raster(images[i,,,])
+})
+
+
+# Converting the one-hot encoded labels to class indices
+label_indices <- apply(labels, 1, which.max) - 1
+
+# Set up the plotting area
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(4, 4)))  # Creating a 4x4 layout for display
+
+# Let's specify the spacing between images (5 pixels)
+spacing <- unit(5, "points")  # 5-pixel space between images (for better visibility)
+
+# Plotting the Images in Loop
+for (i in 1:16) {
+  # Define position
+  row <- (i - 1) %/% 4 + 1
+  col <- (i - 1) %% 4 + 1
+  
+  # Creating a viewport for each image
+  pushViewport(viewport(layout.pos.row = row, layout.pos.col = col))
+  
+  # Plotting the image
+  grid.raster(image_list[[i]], 
+              width = unit(1, "npc") - spacing, # Spacing for horizontal spacing between images
+              height = unit(1, "npc") - spacing) # Spacing for vertical spacing between images
+  
+  # Adding a background rectangle behind the text (as the text was not clearly visible on the images)
+  grid.rect(x = unit(0.5, "npc"),  # X-axis Position for the text background
+            y = unit(1, "npc") - unit(1, "lines"),  # Y-axis Position for the text background
+            width = unit(1, "lines") * 2,              # Width of the background rectangle
+            height = unit(1, "lines"),             # Height of the background rectangle
+            just = "center",                          # Align to the center
+            gp = gpar(fill = "black", col = NA))   # White background, no border
+  
+  # Adding the label on the image
+  grid.text(label = as.character(label_indices[i]), 
+            y = unit(1, "npc") - unit(1, "lines"), 
+            just = "top", 
+            gp = gpar(fontsize = 8, fontface = "bold", col = "green")) # Setting the format for the text
+  
+  # Pop the viewport
+  popViewport()
+}
+
+# Pop the main viewport
+popViewport()
+```
+
+###### Splitting the training dataset into training and validation set.
+
+```{r}
+# Splitting the training dataset into training and validation
+
+# Define the split ratio (80% for training, 20% for validation)
+validation_split <- 0.2
+
+# Calculating the number of batches
+total_batches <- length(train_dataset)
+
+# Calculate the number of batches for validation
+val_batches <- floor(validation_split * total_batches)
+
+# Split the dataset
+validation_dataset <- train_dataset %>% dataset_take(val_batches)
+train_dataset <- train_dataset %>% dataset_skip(val_batches)
+
+```
+
+
+###### Data Augmentation for transforming the training images to make it more robust.
+
+```{r}
+# Corrected data augmentation layers
+data_augmentation <- keras_model_sequential() %>%
+  layer_random_flip(mode = "horizontal") %>% # Randomly Flipping the images Horizontally
+  layer_random_rotation(factor = 0.2) %>% # Randomly Rotating the images
+  layer_random_zoom(height_factor = 0.2, width_factor = 0.2) # A random zoom for images
+
+# Apply data augmentation to the dataset
+train_dataset <- train_dataset %>% 
+  dataset_map(function(x, y) {
+    list(data_augmentation(x), y)
+  })
+```
+
+###### Extracting the Unique Labels from the dataset
+
+```{r}
+
+# Extracting unique labels from train_dataset
+unique_labels <- extract_labels(train_dataset)
+
+```
+
+
+```{r}
+# This model is incorporated into a function to be run for different learning algorithms.
+# CNN Model Architecture (4 Layers) with Relu as Intermediate Activation Function and Softmax at the output.
+
+# model <- keras_model_sequential() %>%
+#   layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = 'relu', input_shape = c(150, 150, 3)) %>%
+#   layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+#   layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = 'relu') %>%
+#   layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+#   layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+#   layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+#   layer_conv_2d(filters = 256, kernel_size = c(3, 3), activation = 'relu') %>%
+#   layer_flatten() %>%
+#   layer_dense(units = 512, activation = 'relu') %>%
+#   layer_dropout(rate = 0.5) %>%
+#   layer_dense(units = length(unique_labels), activation = 'softmax')
+
+```
+
+##### Implementing CNN.
+
+##### Specifying a learning_rates vector for different learning rates for the CNN model.
+```{r}
+# Using different learning rates as hyperparameter
+
+learning_rates <- c(0.1, 0.01, 0.001, 0.0001)
+#learning_rates <- c(0.001)
+```
+
+###### Building a function for CNN model and compiling the model using Adam Optimizer and Categorical Cross Entropy (for one-hot encoded labels).
+
+```{r}
+# a function for the model
+
+compile_cnn_model <- function(lr) {
+  # Model Architecture
+  model <- keras_model_sequential() %>%
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = 'relu', input_shape = c(150, 150, 3)) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 256, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_flatten() %>%
+  layer_dense(units = 512, activation = 'relu') %>%
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = length(unique_labels), activation = 'softmax')
+  
+  # Compiling the Model
+  model %>% compile(
+    optimizer = optimizer_adam(learning_rate = lr),
+    loss = 'categorical_crossentropy',
+    metrics = c('accuracy')
+  )
+  
+  return(model)
+}
+
+# a function for training the model
+train_cnn_model <- function(model, train_dataset, validation_dataset, epochs = 10) {
+  history <- model %>% fit(
+    train_dataset,
+    epochs = epochs,  # Default number of epochs set to 10
+    validation_data = validation_dataset
+  )
+  
+  return(history)
+}
+  
+# a function to evaluate the model on the test dataset
+evaluate_model <- function(model, test_dataset) {
+  evaluation <- model %>% evaluate(test_dataset)
+  return(list(loss = evaluation[1], accuracy = evaluation[2]))
+}
+
+```
+
+
+###### Training and Evaluating the CNN Model
+
+```{r}
+# Training and Evaluation
+
+# Initialize a list to store the results
+histories <- list()
+
+# Evaluating each model on the test dataset and store the results in the dataframe
+evaluation_results_df <- data.frame(
+  learning_rate = numeric(),
+  loss = numeric(),
+  accuracy = numeric(),
+  stringsAsFactors = FALSE
+)
+
+
+# Number of Epochs
+num_epochs <- 50
+
+# Loop to traing and evaluate
+for (lr in learning_rates) {
+  cat("Training and evaluating model with learning rate: ", lr, "\n")
+  
+  # Recreate a new model for each learning rate
+  model <- compile_cnn_model(lr)  # getting a fresh model each time
+  
+  # Train the new model
+  history <- train_cnn_model(model, train_dataset, validation_dataset, epochs = num_epochs)
+  
+  # Appending the history results for plotting later
+  histories[[paste("lr_", lr, sep = "")]] <- history
+  
+  # Evaluate the model on the test set
+  evaluation <- evaluate_model(model, test_dataset)
+
+  # Appending the evaluation results to the data frame
+  evaluation_results_df <- rbind(evaluation_results_df,
+                                  data.frame(learning_rate = lr,
+                                             loss = evaluation$loss,
+                                             accuracy = evaluation$accuracy))
+}
+```
+###### Plotting the Model Performance for different learning rates
+
+```{r}
+# Plotting the results
+ggplot(evaluation_results_df, aes(x = learning_rate, y = accuracy)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Model Accuracy by Learning Rate on Test Set",
+       x = "Learning Rate",
+       y = "Accuracy") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) # Center align the title
+```
+###### Plotting the Model Performance, Training and Validation accuracy for different learning rates
+
+```{r}
+# Initialize a data frame for plotting
+plot_data <- data.frame()
+
+# Loop through stored histories
+for (lr in learning_rates) {
+  # Get the history for the current learning rate
+  history <- histories[[paste("lr_", lr, sep = "")]]
+
+  # Create a data frame for the training and validation accuracy
+  lr_data <- data.frame(
+    epochs = seq_len(length(history$metrics$accuracy)),  # length of accuracy
+    accuracy = history$metrics$accuracy,
+    val_accuracy = history$metrics$val_accuracy,
+    learning_rate = as.factor(lr)  # Make learn ing rate a factor for color
+  )
+
+  # Combine into a single data frame
+  plot_data <- rbind(plot_data, lr_data)
+}
+
+#library(reshape2)
+# Reshape the data for plotting
+plot_data_long <- melt(plot_data, id.vars = c("epochs", "learning_rate"), 
+                        variable.name = "type", value.name = "accuracy")
+
+options(repr.plot.width = 20, repr.plot.height = 20) # Resizing the area to plot the curve
+
+# Plotting
+ggplot(plot_data_long, aes(x = epochs, y = accuracy, color = learning_rate, linetype = type)) +
+  geom_line() +
+  labs(title = "Training and Validation Accuracy for Different Learning Rates",
+       x = "Epochs", y = "Accuracy") +
+  theme_minimal() +
+  scale_color_discrete(name = "Learning Rate") +
+  scale_linetype_manual(name = "Type", values = c("solid", "dashed")) +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+###### Results of the CNN Models on the test dataset
+
+```{r}
+# Printing the Evaluation results on the test dataset.
+print(evaluation_results_df)
+
+```
+
+##### Implementing Resnet50
+
+
+```{r}
+
+# Load the ResNet50 model with ImageNet weights, excluding the top layer
+base_model <- application_resnet50(weights = 'imagenet', include_top = FALSE, input_shape = c(150, 150, 3))
+
+# Freeze the base model layer weights
+freeze_weights(base_model)
+
+```
+
+```{r}
+summary(base_model) # Summary of the base model
+```
+
+
+###### Adding custom layers on top of base layers in ResNet50
+
+```{r}
+# Adding custom layers on top of the base model
+model_r <- keras_model_sequential() %>%
+  base_model %>%
+  layer_flatten() %>%
+  layer_dense(units = 512, activation = 'relu') %>%
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = length(unique_labels), activation = 'softmax') # length(unique_labels)=10, for 10 digits.
+
+
+# Compiling the model
+model_r %>% compile(
+  optimizer = optimizer_adam(learning_rate = 0.001),  # Keeping the learning rate as the one choosen for CNN.
+  loss = 'categorical_crossentropy',
+  metrics = c('accuracy')
+)
+
+
+```
+
+###### Training the Resnet50 model on the image dataset.
+
+```{r}
+# Training the model
+history_resnet <- model_r %>% fit(
+  train_dataset,
+  epochs = 50,  # 
+  validation_data = validation_dataset
+)
+
+```
+###### Plotting the Model Performance for Resnet50
+
+```{r}
+
+# Prepare data for plotting from history_resnet
+plot_data_resnet <- data.frame(
+  epochs = seq_len(length(history_resnet$metrics$accuracy)),  # Create a sequence for epochs
+  accuracy = history_resnet$metrics$accuracy,                 # Training accuracy
+  val_accuracy = history_resnet$metrics$val_accuracy          # Validation accuracy
+)
+
+# Reshape the data for plotting
+plot_data_resnet_long <- melt(plot_data_resnet, id.vars = "epochs", 
+                               variable.name = "type", value.name = "accuracy")
+
+# # Resize the plot area
+# options(repr.plot.width = 20, repr.plot.height = 20)
+
+# Plotting
+ggplot(plot_data_resnet_long, aes(x = epochs, y = accuracy, color = type, linetype = type)) +
+  geom_line() +
+  labs(title = "Training and Validation Accuracy for ResNet50 (Learning Rate=0.001)",
+       x = "Epochs", y = "Accuracy") +
+  theme_minimal() +
+  scale_color_manual(name = "Type", values = c("skyblue2", "red4")) +  # Custom colors for training and validation
+  scale_linetype_manual(name = "Type", values = c("solid", "dashed")) +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+```
+
+
+###### Evaluating the ResNet50 Model.
+
+```{r}
+# Evaluate the model
+evaluation_resnet <- model_r %>% evaluate(test_dataset)
+# Print the evaluation results
+print("Evaluation Results of ResNet50 for a learning rate of 0.001 ")
+cat("Test Loss: ", evaluation_resnet[[1]], "\n")
+cat("Test Accuracy: ", evaluation_resnet[[2]], "\n")
+
+```
+#### End of Script.
