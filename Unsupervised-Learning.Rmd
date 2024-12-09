@@ -238,9 +238,13 @@ cat("The number of PCA components for 85% explained varaince are ", pc_index_85)
 ```
 
 ###### K-Means Clustering
+```{r}
+library(ggforce)
+```
+
 
 ```{r}
-
+library(ggforce)
 # Set seed for reproducibility
 set.seed(28)
 
@@ -348,6 +352,96 @@ ggplot(cluster_analysis, aes(x = Cluster, y = Digit, fill = Percentage)) +
 
 ```
 
-###### Here, the goal was to check if digits 3 & 6, or 1 and 9 could be well distinguished by the machine learning algorithms. However, I found that the algorithm was able to clearly distinguish between these digits, but not able to distinguish between the digits 2, 3 and 5 (clusters 1 and 4) upto a large extent. Further, there is some overlap between the digits 0 and 7 as well (in cluster 10).
+###### T-SNE and UMAP
+```{r}
+# Required Libraries for t-SNE and UMAP
+library(Rtsne)      # For t-SNE
+library(umap)       # For UMAP
+library(ggplot2)    # For visualization
+library(plotly)
+```
+
+
+###### Using t-sne on the 62 Principal Components used for K-Means for Visualization of Clusters
+
+```{r}
+
+# Set seed for reproducibility
+set.seed(28)
+
+# Apply t-SNE to the PCA-reduced data (using 62 components)
+tsne_result <- Rtsne(pca_result$x[, 1:62], dims = 2, perplexity = 30, maxiter = 500, theta=0.5, check_duplicates = FALSE)
+
+# Create a data frame with t-SNE results and K-means clusters
+tsne_data <- data.frame(tsne_result$Y, cluster = factor(kmeans_result$cluster))
+
+# Visualize the t-SNE plot with the K-means cluster labels
+ggplot(tsne_data, aes(x = X1, y = X2, color = cluster)) +
+  geom_point() +
+  labs(title = "t-SNE Visualization of K-Means Clusters", 
+       x = "t-SNE 1", y = "t-SNE 2") +
+  theme_minimal()
+
+```
+###### Interactive t-sne Plot
+
+```{r}
+# Visualize the t-SNE plot with the K-means cluster labels
+p_tsne <- ggplot(tsne_data, aes(x = X1, y = X2, color = cluster)) +
+  geom_point() +
+  labs(title = "t-SNE Visualization of K-Means Clusters", 
+       x = "t-SNE 1", y = "t-SNE 2") +
+  theme_minimal()
+
+p_int_tsne <- ggplotly(p_tsne)
+
+p_int_tsne
+
+```
+
+
+###### UMAP Visualization
+
+```{r}
+# Set seed for reproducibility
+set.seed(28)
+
+# Apply UMAP to the PCA-reduced data (using 62 components)
+umap_result <- umap(pca_result$x[, 1:62])  # Apply UMAP using the first 62 principal components
+
+# Create a data frame with UMAP results and K-means clusters
+umap_data <- data.frame(umap_result$layout, cluster = factor(kmeans_result$cluster))
+
+# Visualize the UMAP plot with the K-means cluster labels
+ggplot(umap_data, aes(x = X1, y = X2, color = cluster)) +
+  geom_point() +
+  labs(title = "UMAP Visualization of K-Means Clusters", 
+       x = "UMAP 1", y = "UMAP 2") +
+  theme_minimal()
+
+
+```
+
+###### Interactive UMAP Visualization
+```{r}
+
+# Visualize the UMAP plot with the K-means cluster labels
+p_umap <- ggplot(umap_data, aes(x = X1, y = X2, color = cluster)) +
+  geom_point() +
+  labs(title = "UMAP Visualization of K-Means Clusters", 
+       x = "UMAP 1", y = "UMAP 2") +
+  theme_minimal()
+
+p_int_umap <- ggplotly(p_umap)
+
+p_int_umap
+```
+
+
+
+#### Conclusion, Here, the goal was to check if digits 3 & 6, or 1 and 9 could be well distinguished by the machine learning algorithms. However, I found that the algorithm was able to clearly distinguish between these digits, but not able to distinguish between the digits 2, 3 and 5 (clusters 6 and 7) upto a large extent. Further, there is some overlap between the digits 0 and 7 as well (in cluster 4). Further, as PCA was not abple to provide a clear visualization of the clusters, so I used T-SNE and UMAP to plot the clusters.
 
 ##### End of Analysis ##### 
+
+
+
